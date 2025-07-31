@@ -1,0 +1,18 @@
+{
+    "Daniele": {
+        "password": "p1",
+        "role": "professor"
+    },
+    "Janecleide": {
+        "password": "p2",
+        "role": "professor"
+    },
+    "Lucas": {
+        "password": "p3",
+        "role": "professor"
+    },
+    "admin": {
+        "password": "adminpass",
+        "role": "admin"
+    }
+}
