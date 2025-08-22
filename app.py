@@ -211,12 +211,7 @@ def app_content():
                 st.write("#### Foco Específico (Personalizado)")
                 parecer_personalizado = st.text_area("Digite o texto do parecer:")
                 leitura = matematica = comportamento = participacao = "N/A"
-    else:
-        # Garante que as variáveis de foco sejam definidas mesmo que o aluno não seja "Frequente"
-        foco_parecer = None
-        leitura = matematica = comportamento = participacao = "N/A"
-
-
+    
     # Botão de Geração do Parecer
     if st.button("Gerar Parecer"):
         # --- Lógica de Geração do Parecer ---
