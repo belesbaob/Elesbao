@@ -5,396 +5,379 @@ from datetime import datetime
 from io import BytesIO
 from docx import Document
 import unicodedata
-from docx.enum.text import WD_ALIGN_PARAGRAPH # Importa para justificar o texto
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+import sys
+
+# Adicione ESTAS DUAS LINHAS para configurar a porta
+# Isso cria uma variável de ambiente que o Streamlit irá ler
+os.environ["STREAMLIT_SERVER_PORT"] = "8502" # Tentar a porta 8502 (ou outra, se preferir)
 
 # --- Configurações Iniciais ---
-DATA_DIR = "data"
+# Verifica se o aplicativo está rodando como um executável PyInstaller
+if getattr(sys, 'frozen', False):
+    # Se sim, o caminho base é o diretório temporário onde o PyInstaller extrai os arquivos
+    base_path = sys._MEIPASS
+else:
+    # Se não, está rodando em ambiente Python normal, o caminho base é o diretório atual do script
+    base_path = os.path.abspath(".")
+
+# Ajusta DATA_DIR para usar o base_path
+DATA_DIR = os.path.join(base_path, "data")
 USERS_FILE = os.path.join(DATA_DIR, "users.json")
 PARECERES_FILE = os.path.join(DATA_DIR, "pareceres.json")
 SCHOOL_NAME = "ESCOLA MUNICIPAL DE EDUCAÇÃO FUNDAMENTAL ELESBÃO BARBOSA DE CARVALHO"
-COORDENADOR_NAME = "NOME DO COORDENADOR AQUI" # Adicionado o nome do coordenador
+COORDENADOR_NAME = "NOME DO COORDENADOR AQUI"
 
-# Lista de Nomes de Alunos (mantida a mesma)
-STUDENT_NAMES = [
-    "Andressa Viturino dos Santos", "Carlos Eduardo Conceição da Silva", "Damiana Honorato dos Santos",
-    "Ivonete Nunes da Silva", "João Pedro da Silva", "José Alexandre Lemo da Silva",
-    "Joselma Conceição da Silva", "José Gonzaga de Melo", "Maria Angelica Honorato de Oliveira",
-    "Maria das Dores Rodrigues Pereira", "Nelson Pereira da Silva", "Nivaldilson Vitorino da Silva",
-    "Roberlange Pereira da Silva", "Rosania Valério da Silva", "Rosileide Ferreira da Silva",
-    "Thayse Ferreira dos Santos", "Alessandra Lopes da Silva", "Adenilson Lourenço dos Santos",
-    "Antônio Ronaldo Firmino", "Cicero da Silva", "Cristiano da Conceição Nogueira",
-    "Daiana Conceição da Silva", "Daniela da Conceição Nogueira", "Edimilson Lima de Queiroz",
-    "Eraldo Bernardino Gomes", "Ivanilda Ferreira dos Anjos", "João Batista Aureliano da Silva",
-    "Joana D’arc Gouveia da Silva", "José Eraldo Silva", "Juliana Conceição da Silva",
-    "Leonardo da Silva", "Maria de Lourdes Emerinda da Silva", "Maria Paula Viturino dos Santos",
-    "Maria Pereira da Silva", "Maria Rosilma da Conceição", "Quiteria Viturino Santos Barros",
-    "Vandilma dos Santos Silva", "Wellison Gomes Ferreira", "Ana Maria da Silva Aquino",
-    "Bartolomeu Ferreira Vanderlei", "Genilson Alves Araújo", "Nilda Barbosa Silva Santos",
-    "Vilma Maria de França", "Adalva Gomes dos Santos", "Adriano Viturino dos Santos",
-    "Aristeu Vitorino dos Santos", "Aurene de Melo Gonzaga", "Carlos Pereira da Silva",
-    "Cristóvão Pereira dos Santos", "Davino Conceição dos Santos", "Edineuza Teles da Silva",
-    "Estelita da Silva", "Francisco Lourenço da Silva", "Francisco Viturino dos Santos",
-    "Inês Juliana dos Santos", "Jânio Gonzaga de Melo", "José Adelmo Soares da Silva",
-    "José Edijario Soares Lemos", "José França da Silva", "José Honélio dos Santos",
-    "José Nilton Avelino", "José Ronaldo dos Santos", "José Vitorino Júnior",
-    "Joselia Honorato de Melo", "Jucilene de Melo Santos", "Manoel Alves Araújo",
-    "Marcio José Rodrigues Limeira", "Maria Aparecida dos Anjos Viturino",
-    "Maria Cleide da Silva", "Maria Gomes dos Santos", "Maria Jaqueline dos Santos Silva",
-    "Rosilânia da Silva Honorato", "Sebastião Rodrigues dos Santos", "Valdimira Gomes"
-]
-
-os.makedirs(DATA_DIR, exist_ok=True)
-
-# --- Funções de Ajuda ---
-def load_data(filepath):
-    if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
-        return []
-    with open(filepath, "r", encoding="utf-8") as f:
+# --- Funções de Utilitário ---
+def load_data(file_path, default_value):
+    """Carrega dados de um arquivo JSON, retornando um valor padrão se não existir."""
+    if not os.path.exists(file_path):
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(default_value, f, ensure_ascii=False, indent=4)
+    with open(file_path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
-def save_data(data, filepath):
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+def save_data(data, file_path):
+    """Salva dados em um arquivo JSON."""
+    with open(file_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 def sanitize_student_name_for_filename(name):
-    """
-    Sanitiza o nome do aluno para ser usado como parte de um nome de arquivo.
-    Removes acentos, converte para minúsculas e substitui espaços por underscores.
-    """
-    name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('utf-8')
-    name = name.lower()
-    name = name.replace(" ", "_")
-    name = "".join(c for c in name if c.isalnum() or c == '_')
-    return name
+    """Remove caracteres especiais e espaços do nome para usar em nomes de arquivo."""
+    sanitized = ''.join(c for c in name if c.isalnum() or c.isspace())
+    return sanitized.strip().replace(' ', '_')
 
-# --- FUNÇÃO PARA GERAR O TEXTO DETALHADO DO PARECER (Com texto mais conciso) ---
-def generate_detailed_parecer_text(characteristics_levels, student_name):
-    """
-    Gera um texto detalhado e contínuo para o parecer, integrando todas as características
-    e buscando aproximar-se de 100-150 palavras.
-    """
-    comportamento = characteristics_levels["comportamento"]
-    participacao = characteristics_levels["participacao"]
-    leitura_escrita = characteristics_levels["leitura_escrita"]
-    matematica = characteristics_levels["matematica"]
+def create_parecer_docx(data):
+    """Cria um documento Word com o parecer do aluno a partir de um template."""
+    template_path = os.path.join(DATA_DIR, "parecer_template.docx")
+    try:
+        doc = Document(template_path)
+    except FileNotFoundError:
+        return st.error(f"Erro: Arquivo de template não encontrado em {template_path}. Certifique-se de que o arquivo 'parecer_template.docx' está na pasta 'data'.")
 
-    parecer_parts = []
+    replacements = {
+        'Nº ': data['numero_aluno'],
+        'Período: ': data['periodo'],
+        'Turma: ': data['turma'],
+        'Turno: ': data['turno'],
+        'Ano Letivo: ': data['ano_letivo'],
+        'Semestre: ': data['semestre'],
+        'Nome do Aluno (a):': data['nome_aluno'],
+        'Filiação: ': f"Filiação: {data['filiacao_mae']} e {data['filiacao_pai']}",
+        'Endereço: ': data['endereco'],
+        'UF: ': data['uf'],
+        'Data de Nascimento: ': data['data_nascimento'],
+        'Naturalidade: ': data['naturalidade'],
+        'Professor': data['nome_professor'],
+        'Coordenador': COORDENADOR_NAME,
+        'Maravilha, AL': f"Maravilha, AL, {data['data_parecer']}",
+    }
 
-    # Introdução geral (Aprox. 20 palavras)
-    parecer_parts.append(f"Este parecer detalha o desenvolvimento de {student_name} no período letivo, abordando seu progresso acadêmico e social.")
+    # Substituir no documento inteiro
+    for paragraph in doc.paragraphs:
+        for key, value in replacements.items():
+            if key in paragraph.text:
+                paragraph.text = paragraph.text.replace(key, value)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    for key, value in replacements.items():
+                        if key in paragraph.text:
+                            paragraph.text = paragraph.text.replace(key, value)
 
-    # Detalhes sobre Comportamento (Aprox. 20-30 palavras cada)
-    if comportamento == "Ótimo":
-        parecer_parts.append("Demonstra comportamento exemplar, contribuindo ativamente para um ambiente de aprendizado positivo e harmonioso. Sua postura disciplinada inspira os colegas.")
-    elif comportamento == "Bom":
-        parecer_parts.append("Comportamento consistentemente bom, respeitando normas e mantendo conduta adequada. Contribui positivamente para o bom andamento das atividades.")
-    elif comportamento == "Regular":
-        parecer_parts.append("Comportamento geralmente adequado, mas com momentos de distração, necessitando de lembretes para manter o foco. Há espaço para aprimoramento na autorregulação.")
-    else: # Ruim
-        parecer_parts.append("Comportamento desafiador em sala de aula, com dificuldades em seguir regras e focar, gerando interrupções. Intervenções específicas são cruciais.")
+    # Inserir o corpo do parecer
+    for paragraph in doc.paragraphs:
+        if 'PARECER DESCRITIVO:' in paragraph.text:
+            p = paragraph.insert_paragraph_before(data['texto_parecer'])
+            p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+            break
 
-    # Detalhes sobre Participação (Aprox. 20-30 palavras cada)
-    if participacao == "Ótimo":
-        parecer_parts.append("Participação notavelmente ativa e pertinente, com grande interesse pelos conteúdos. Realiza perguntas perspicazes e oferece contribuições valiosas.")
-    elif participacao == "Bom":
-        parecer_parts.append("Participa de forma consistente, mostrando interesse e esforço em contribuir. Busca interagir e se envolver para aprofundar seu entendimento.")
-    elif participacao == "Regular":
-        parecer_parts.append("A participação é pontual e ocasional. Demonstra potencial, mas por vezes reticência em se expressar. Incentivos adicionais podem estimular maior engajamento.")
-    else: # Ruim
-        parecer_parts.append("Participação mínima em sala de aula, com pouca iniciativa para interagir. Essa passividade limita o aproveitamento e a consolidação do aprendizado.")
+    # Salvar em BytesIO para download
+    bio = BytesIO()
+    doc.save(bio)
+    bio.seek(0)
+    return bio
 
-    # Detalhes sobre Leitura e Escrita (Aprox. 20-30 palavras cada)
-    if leitura_escrita == "Ótimo":
-        parecer_parts.append("Excelente capacidade de leitura e escrita, com compreensão aprofundada de textos complexos. Produz textos coesos, coerentes e bem estruturados, com vocabulário rico.")
-    elif leitura_escrita == "Bom":
-        parecer_parts.append("Boa habilidade em leitura e escrita, compreendendo a maioria dos textos e expressando-se claramente. Produz redações com ideias bem definidas, com refinamentos pontuais.")
-    elif leitura_escrita == "Regular":
-        parecer_parts.append("Nível regular de leitura e escrita, com dificuldades na compreensão de nuances ou elaboração de frases complexas. Práticas direcionadas são necessárias para maior autonomia.")
-    else: # Ruim
-        parecer_parts.append("Significativas dificuldades em leitura e escrita, impactando a compreensão e produção de ideias. Esforços contínuos e intervenções pedagógicas específicas são cruciais.")
+# --- Funções de Autenticação ---
+def login():
+    st.session_state['logged_in'] = False
+    with st.form("login_form"):
+        username = st.text_input("Usuário")
+        password = st.text_input("Senha", type="password")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.form_submit_button("Entrar"):
+                users = load_data(USERS_FILE, {})
+                if username in users and users[username]['password'] == password:
+                    st.session_state['logged_in'] = True
+                    st.session_state['username'] = username
+                    st.success("Login bem-sucedido!")
+                    st.experimental_rerun()
+                else:
+                    st.error("Usuário ou senha incorretos.")
+        with col2:
+            st.write("---")
+            if st.form_submit_button("Criar Conta"):
+                st.session_state['show_create_account'] = True
 
-    # Detalhes sobre Matemática (Aprox. 20-30 palavras cada)
-    if matematica == "Ótimo":
-        parecer_parts.append("Excelente domínio das operações e conceitos matemáticos. Resolve problemas com autonomia, aplicando diferentes estratégias e justificando raciocínios logicamente. Aptidão evidente.")
-    elif matematica == "Bom":
-        parecer_parts.append("Boa capacidade em operações matemáticas básicas e compreensão dos conceitos. Aplica o conhecimento em diversas situações, mostrando solidez em sua base.")
-    elif matematica == "Regular":
-        parecer_parts.append("Realiza operações matemáticas básicas com alguma dificuldade, demandando tempo e suporte. Revisão de conceitos e prática constante são recomendadas para fortalecer proficiência.")
-    else: # Ruim
-        parecer_parts.append("Grande dificuldade em operações e conceitos matemáticos básicos. Domínio numérico e lógico limitado, exigindo plano de intervenção intensivo para construir base sólida.")
+def create_account():
+    st.session_state['logged_in'] = False
+    st.session_state['show_create_account'] = True
+    with st.form("create_account_form"):
+        st.write("### Criar Nova Conta")
+        new_username = st.text_input("Novo Usuário", key="new_user")
+        new_password = st.text_input("Nova Senha", type="password", key="new_pass")
+        confirm_password = st.text_input("Confirmar Senha", type="password", key="confirm_pass")
+        if st.form_submit_button("Confirmar Cadastro"):
+            if not new_username or not new_password or not confirm_password:
+                st.error("Preencha todos os campos.")
+            elif new_password != confirm_password:
+                st.error("As senhas não coincidem.")
+            else:
+                users = load_data(USERS_FILE, {})
+                if new_username in users:
+                    st.error("Usuário já existe. Escolha outro nome.")
+                else:
+                    users[new_username] = {'password': new_password, 'is_admin': False}
+                    save_data(users, USERS_FILE)
+                    st.success("Conta criada com sucesso! Faça login para continuar.")
+                    st.session_state['show_create_account'] = False
+                    st.experimental_rerun()
+        if st.form_submit_button("Voltar para Login"):
+            st.session_state['show_create_account'] = False
+            st.experimental_rerun()
 
-    # Nova Lógica de Reprovação (1. Aluno só reprova se Leitura/Escrita E Matemática forem Ruim)
-    reprovado = False
-    if leitura_escrita == "Ruim" and matematica == "Ruim":
-        reprovado = True
+# --- Conteúdo do Aplicativo ---
+def app_content():
+    st.sidebar.title(f"Bem-vindo(a), {st.session_state['username']}")
+    st.sidebar.button("Logout", on_click=lambda: st.session_state.clear())
+    st.title("Gerador de Parecer Descritivo Individual")
     
-    ressalvas = False
-    for level in characteristics_levels.values():
-        if level == "Regular":
-            ressalvas = True
-            break # Se houver qualquer "Regular", já marca como ressalvas
+    # Adicionando o seletor de tipo de parecer
+    parecer_type = st.radio("Selecione o tipo de parecer a ser gerado:",
+                            ["Parecer Completo", "Apenas o Texto"])
 
-    # Conclusão do parecer (Aprox. 25-35 palavras cada)
-    if reprovado:
-        conclusao = "Diante do exposto, e considerando os desafios persistentes em leitura e matemática, o aluno não atingiu os critérios necessários para aprovação neste período letivo."
-    elif ressalvas:
-        conclusao = "Aluno(a) aprovado(a) com ressalvas, sendo crucial que o acompanhamento pedagógico e as intervenções específicas sejam mantidas. O foco deve ser nas áreas que demandam maior desenvolvimento para progresso consistente."
-    else:
-        conclusao = "Conclui-se que o aluno(a) foi aprovado(a). Seu desempenho e desenvolvimento geral indicam que atingiu os objetivos propostos para o período, demonstrando preparo para avançar para a próxima etapa."
+    # Carregar dados
+    pareceres_db = load_data(PARECERES_FILE, {})
+    
+    # Coletar dados do aluno
+    st.header("1. Dados do Aluno")
+    student_name = st.text_input("Nome Completo do Aluno(a)")
+    filiacao_mae = st.text_input("Filiação (Mãe)")
+    filiacao_pai = st.text_input("Filiação (Pai)")
+    data_nascimento = st.text_input("Data de Nascimento (dd/mm/aaaa)")
+    naturalidade = st.text_input("Naturalidade")
+    endereco = st.text_input("Endereço")
+    uf = st.text_input("UF")
+    numero_aluno = st.text_input("Número do Aluno(a) na Lista de Chamada")
+    
+    st.header("2. Dados da Turma")
+    periodo = st.selectbox("Período/Ano", ["1º", "2º", "3º", "4º", "5º", "6º", "7º", "8º", "9º", "EJA"])
+    turma = st.text_input("Turma")
+    turno = st.selectbox("Turno", ["Manhã", "Tarde", "Noturno"])
+    
+    st.header("3. Dados do Parecer")
+    nome_professor = st.text_input("Nome Completo do(a) Professor(a)")
+    
+    # Opção para alunos que deixaram de frequentar - NOVO CAMPO DE SELEÇÃO
+    status_aluno = st.selectbox(
+        "Status do Aluno(a)",
+        ["Frequente", "Deixou de Frequentar"] # NOVO CAMPO
+    )
 
-    parecer_parts.append(conclusao)
-
-    # Junta todas as partes em um texto único
-    full_text = "\n\n".join(parecer_parts)
-    # Substitui o nome do aluno em todas as partes da descrição gerada
-    full_text = full_text.replace("{student_name}", student_name)
-    return full_text
-
-
-# --- FUNÇÃO GERAR_DOCX_PARECER ---
-def gerar_docx_parecer(student_name, characteristics_levels, teacher_name):
-    """
-    Gera o documento DOCX do parecer preenchendo o template específico do aluno.
-    """
-    sanitized_name = sanitize_student_name_for_filename(student_name)
-    student_template_file = os.path.join(DATA_DIR, f"template_{sanitized_name}.docx")
-
-    if not os.path.exists(student_template_file):
-        st.error(f"Erro: O template específico para '{student_name}' não foi encontrado.")
-        st.info(f"Por favor, crie o arquivo '{os.path.basename(student_template_file)}' na pasta 'data/' com as informações pessoais do aluno e os placeholders necessários.")
-        return None
-
-    try:
-        document = Document(student_template_file)
-
-        full_parecer_text = generate_detailed_parecer_text(characteristics_levels, student_name)
+    if status_aluno == "Frequente":
+        st.subheader("Habilidades Desenvolvidas")
+        foco_parecer = st.radio("Foco do Parecer", ["Geral", "Comportamental", "Específico"])
+    
+        if foco_parecer == "Geral":
+            with st.container(border=True):
+                st.write("#### Áreas de Desempenho")
+                leitura = st.selectbox("Leitura e Escrita", ["N/A", "Muito Bom", "Bom", "Precisa Melhorar"])
+                matematica = st.selectbox("Matemática", ["N/A", "Muito Bom", "Bom", "Precisa Melhorar"])
+                comportamento = st.selectbox("Comportamento", ["N/A", "Muito Bom", "Bom", "Precisa Melhorar"])
+                participacao = st.selectbox("Participação", ["N/A", "Muito Bom", "Bom", "Precisa Melhorar"])
         
-        current_date = datetime.now()
-        dia = current_date.strftime("%d")
-        mes_extenso = current_date.strftime("%B").replace("January", "Janeiro").replace("February", "Fevereiro").replace("March", "Março").replace("April", "Abril").replace("May", "Maio").replace("June", "Junho").replace("July", "Julho").replace("August", "Agosto").replace("September", "Setembro").replace("October", "Outubro").replace("November", "Novembro").replace("December", "Dezembro")
-        ano = current_date.strftime("%Y")
+        elif foco_parecer == "Comportamental":
+            with st.container(border=True):
+                st.write("#### Foco Comportamental")
+                comportamento = st.selectbox("Comportamento", ["N/A", "Muito Bom", "Bom", "Precisa Melhorar"])
+                participacao = st.selectbox("Participação", ["N/A", "Muito Bom", "Bom", "Precisa Melhorar"])
+                leitura = matematica = "N/A"
+        
+        elif foco_parecer == "Específico":
+            with st.container(border=True):
+                st.write("#### Foco Específico (Personalizado)")
+                parecer_personalizado = st.text_area("Digite o texto do parecer:")
+                leitura = matematica = comportamento = participacao = "N/A"
+    else:
+        # Garante que as variáveis de foco sejam definidas mesmo que o aluno não seja "Frequente"
+        foco_parecer = None
+        leitura = matematica = comportamento = participacao = "N/A"
 
-        replacements = {
-            "{{NOME_ALUNO}}": student_name,
-            "{{PARECER_GERADO}}": full_parecer_text,
-            "{{NOME_PROFESSOR}}": teacher_name,
-            "{{NOME_COORDENADOR}}": COORDENADOR_NAME, # Novo placeholder para coordenador
-            "{{DATA_PARECER}}": current_date.strftime("%d/%m/%Y"),
-            "{{DIA_PARECER}}": dia,
-            "{{MES_PARECER}}": mes_extenso,
-            "{{ANO_CORRENTE}}": ano,
-            "{{SEMESTRE}}": "2025.1"
-        }
 
-        # Função para substituir placeholders em parágrafos, aplicar justificação e definir fonte
-        def replace_and_format_paragraph(paragraph, old_text, new_text):
-            full_paragraph_text = "".join(run.text for run in paragraph.runs)
+    # Botão de Geração do Parecer
+    if st.button("Gerar Parecer"):
+        # --- Lógica de Geração do Parecer ---
+        if not student_name or not nome_professor:
+            st.error("Por favor, preencha o nome do aluno e do professor.")
+        else:
+            parecer_text = ""
             
-            if old_text in full_paragraph_text:
-                # Limpa os runs existentes no parágrafo
-                for i in range(len(paragraph.runs) - 1, -1, -1):
-                    paragraph._element.remove(paragraph.runs[i]._element)
-                
-                # Adiciona o novo texto como um único run
-                new_run = paragraph.add_run(new_text)
+            # NOVO TRECHO DE CÓDIGO - TRATA ALUNOS QUE DEIXARAM DE FREQUENTAR
+            if status_aluno == "Deixou de Frequentar":
+                parecer_text = (
+                    f"Constatou-se que o(a) aluno(a) {student_name} deixou de frequentar a escola. "
+                    "Devido ao curto período de tempo de sua presença em sala de aula, não foi possível "
+                    "estabelecer uma relação de aprendizado sólida."
+                )
+            
+            elif status_aluno == "Frequente":
+                if foco_parecer == "Geral":
+                    parecer_text = f"O(a) aluno(a) {student_name} demonstra uma postura colaborativa em sala de aula, apresentando um bom desempenho geral. No que diz respeito à leitura e escrita, demonstra {leitura}. Na área de Matemática, seu desempenho é {matematica}. Seu comportamento é {comportamento} e sua participação em atividades em grupo é {participacao}."
+                elif foco_parecer == "Comportamental":
+                    parecer_text = f"O(a) aluno(a) {student_name} demonstra uma postura {comportamento} em sala de aula. Sua participação nas atividades é {participacao}, contribuindo positivamente para o ambiente escolar."
+                elif foco_parecer == "Específico":
+                    parecer_text = parecer_personalizado
+            
+            data_parecer = datetime.now().strftime("%d de %B de %Y").replace(
+                "January", "janeiro"
+            ).replace("February", "fevereiro").replace("March", "março").replace(
+                "April", "abril"
+            ).replace("May", "maio").replace("June", "junho").replace(
+                "July", "julho"
+            ).replace("August", "agosto").replace("September", "setembro").replace(
+                "October", "outubro"
+            ).replace("November", "novembro").replace("December", "dezembro")
 
-                # Aplica justificação e define a fonte Times New Roman se for o placeholder do parecer gerado
-                if old_text == "{{PARECER_GERADO}}":
-                    paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                    new_run.font.name = "Times New Roman" # Define a fonte Times New Roman
+            parecer_data = {
+                'nome_aluno': student_name,
+                'filiacao_mae': filiacao_mae,
+                'filiacao_pai': filiacao_pai,
+                'data_nascimento': data_nascimento,
+                'naturalidade': naturalidade,
+                'endereco': endereco,
+                'uf': uf,
+                'numero_aluno': numero_aluno,
+                'periodo': periodo,
+                'turma': turma,
+                'turno': turno,
+                'ano_letivo': datetime.now().year,
+                'semestre': '2025.1', # Ajuste conforme o ano
+                'nome_professor': nome_professor,
+                'texto_parecer': parecer_text,
+                'data_parecer': data_parecer
+            }
 
-        # Iterar sobre todos os parágrafos do documento e substituir os placeholders
-        for paragraph in document.paragraphs:
-            for key, value in replacements.items():
-                replace_and_format_paragraph(paragraph, key, value)
-
-        # Iterar sobre as tabelas (se houver) e substituir os placeholders
-        for table in document.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    for paragraph in cell.paragraphs:
-                        for key, value in replacements.items():
-                            replace_and_format_paragraph(paragraph, key, value)
-
-        buffer = BytesIO()
-        document.save(buffer)
-        buffer.seek(0)
-        return buffer
-    except Exception as e:
-        st.error(f"Ocorreu um erro ao preencher o DOCX: {e}")
-        st.info("Verifique se o template DOCX está correto e se o nome dos placeholders está exato.")
-        st.info("Certifique-se de que a biblioteca 'python-docx' está instalada (`pip install python-docx`).")
-        return None
-
-
-# --- Carregar Usuários (ou criar se não existirem) ---
-def initialize_users():
-    users = {}
-    if os.path.exists(USERS_FILE) and os.path.getsize(USERS_FILE) == 0:
-        return users # Retorna vazio se o arquivo não existe ou está vazio
-
-    try:
-        with open(USERS_FILE, "r", encoding="utf-8") as f:
-            users = json.load(f)
-    except json.JSONDecodeError:
-        st.error("Erro ao ler o arquivo de usuários. Ele pode estar corrompido ou vazio. Recriando usuários padrão.")
-        users = {} # Força a recriação se houver erro de leitura
-
-    if not users:
-        users = {
-            "professor1": {"password": "p1", "role": "professor"},
-            "professor2": {"password": "p2", "role": "professor"},
-            "professor3": {"password": "p3", "role": "professor"},
-            "admin": {"password": "adminpass", "role": "admin"}
-        }
-        save_data(users, USERS_FILE)
-    return users
-
-users = initialize_users()
-
-# Carregar pareceres existentes
-pareceres_salvos = load_data(PARECERES_FILE)
-
-# --- Layout do Streamlit ---
-st.set_page_config(
-    page_title="Sistema de Pareceres de Alunos",
-    layout="centered",
-    initial_sidebar_state="auto"
-)
-
-st.title("Sistema de Pareceres de Alunos")
-st.markdown("---")
-
-# --- Tela de Login ---
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.username = None
-    st.session_state.role = None
-
-if not st.session_state.logged_in:
-    st.header("Login")
-    username = st.text_input("Usuário", key="login_user")
-    password = st.text_input("Senha", type="password", key="login_pass")
-
-    if st.button("Entrar", key="login_button"):
-        if username in users and users.get(username, {}).get("password") == password:
-            st.session_state.logged_in = True
-            st.session_state.username = username
-            st.session_state.role = users.get(username, {}).get("role")
-            st.success(f"Bem-vindo(a), {username}!")
-            st.rerun()
-        else:
-            st.error("Usuário ou senha inválidos.")
-else:
-    st.sidebar.write(f"Usuário logado: **{st.session_state.username}**")
-    st.sidebar.write(f"Papel: **{st.session_state.role.capitalize()}**")
-    if st.sidebar.button("Sair", key="logout_button"):
-        st.session_state.logged_in = False
-        st.session_state.username = None
-        st.session_state.role = None
-        st.rerun()
-
-    if st.session_state.role == "professor":
-        st.header("Gerar Parecer de Aluno")
-
-        selected_student = st.selectbox(
-            "Selecione o Aluno:",
-            [""] + sorted(STUDENT_NAMES),
-            key="student_name_select"
-        )
-
-        st.subheader("Avaliação das Características:")
-        levels_options = ["Bom", "Ótimo", "Regular", "Ruim"]
-
-        comportamento_level = st.selectbox("Comportamento:", levels_options, key="comportamento_level")
-        participacao_level = st.selectbox("Participação em sala de aula:", levels_options, key="participacao_level")
-        leitura_escrita_level = st.selectbox("Capacidade de leitura e escrita:", levels_options, key="leitura_escrita_level")
-        matematica_level = st.selectbox("Operações matemáticas básicas:", levels_options, key="matematica_level")
-
-        if st.button("Gerar e Salvar Parecer em DOCX", key="generate_save_docx_button"):
-            if selected_student:
-                characteristics_levels = {
-                    "comportamento": comportamento_level,
-                    "participacao": participacao_level,
-                    "leitura_escrita": leitura_escrita_level,
-                    "matematica": matematica_level
+            if 'parecer_personalizado' in locals() and parecer_personalizado:
+                parecer_data['opcao'] = 'Específico'
+            elif status_aluno == 'Deixou de Frequentar':
+                parecer_data['opcao'] = 'Deixou de Frequentar'
+            else:
+                parecer_data['characteristics_levels'] = {
+                    "leitura": leitura,
+                    "matematica": matematica,
+                    "comportamento": comportamento,
+                    "participacao": participacao
                 }
-                
-                docx_buffer = gerar_docx_parecer(selected_student, characteristics_levels, st.session_state.username)
-                
-                if docx_buffer:
-                    docx_bytes = docx_buffer.getvalue()
-                    file_name = f"parecer_{sanitize_student_name_for_filename(selected_student)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
 
-                    pareceres_salvos.append({
-                        "student_name": selected_student,
-                        "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "professor": st.session_state.username,
-                        "characteristics_levels": characteristics_levels,
-                        "docx_data": docx_bytes.hex()
-                    })
-                    save_data(pareceres_salvos, PARECERES_FILE)
-
-                    st.download_button(
-                        label="Baixar Parecer Gerado (DOCX)",
-                        data=docx_bytes,
-                        file_name=file_name,
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    )
-                    st.success(f"Parecer para **{selected_student}** gerado e salvo com sucesso!")
-            else:
-                st.warning("Por favor, selecione o nome do aluno para gerar o parecer.")
-
-    elif st.session_state.role == "admin":
-        st.header("Visualizar e Baixar Pareceres")
-
-        if not pareceres_salvos:
-            st.info("Nenhum parecer salvo ainda.")
-        else:
-            alunos_com_pareceres = sorted(list(set(p.get('student_name') for p in pareceres_salvos if 'student_name' in p)))
-
-            if not alunos_com_pareceres:
-                st.info("Nenhum parecer salvo ainda com nome de aluno.")
-            else:
-                selected_student_admin = st.selectbox(
-                    "Selecione um aluno para visualizar os pareceres:",
-                    [""] + alunos_com_pareceres,
-                    key="admin_student_select"
+            # Gerar o arquivo .docx
+            docx_data_bytes = None
+            if parecer_type == "Parecer Completo":
+                doc_bytes_io = create_parecer_docx(parecer_data)
+                if doc_bytes_io:
+                    docx_data_bytes = doc_bytes_io.getvalue()
+                    parecer_data['docx_data'] = docx_data_bytes.hex()
+                    
+            st.success("Parecer gerado com sucesso!")
+            st.write("---")
+            st.subheader("Pré-visualização do Parecer")
+            st.write(parecer_data['texto_parecer'])
+            
+            if docx_data_bytes:
+                sanitized_name = sanitize_student_name_for_filename(student_name)
+                file_name = f"parecer_descritivo_{sanitized_name}.docx"
+                st.download_button(
+                    label="Baixar Parecer (DOCX)",
+                    data=docx_data_bytes,
+                    file_name=file_name,
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 )
 
-                pareceres_a_exibir = []
-                if not selected_student_admin:
-                    pareceres_a_exibir = pareceres_salvos
-                else:
-                    pareceres_a_exibir = [p for p in pareceres_salvos if p.get('student_name') == selected_student_admin]
+            # Salvar no banco de dados
+            if st.session_state['username'] not in pareceres_db:
+                pareceres_db[st.session_state['username']] = {}
+            if student_name not in pareceres_db[st.session_state['username']]:
+                pareceres_db[st.session_state['username']][student_name] = []
+            
+            parecer_data_to_save = parecer_data.copy()
+            if docx_data_bytes:
+                parecer_data_to_save['docx_data'] = docx_data_bytes.hex()
+            
+            pareceres_db[st.session_state['username']][student_name].append(parecer_data_to_save)
+            save_data(pareceres_db, PARECERES_FILE)
 
-                if not pareceres_a_exibir:
-                    st.info(f"Nenhum parecer encontrado para {selected_student_admin}.")
-                else:
-                    if not selected_student_admin:
-                        st.subheader("Todos os Pareceres Salvos:")
-                    else:
-                        st.subheader(f"Pareceres para {selected_student_admin}:")
 
-                    for i, parecer_info in enumerate(pareceres_a_exibir):
-                        student_name_display = parecer_info.get('student_name', 'Aluno Desconhecido')
-                        st.markdown(f"**Parecer {i+1} para {student_name_display}**")
-                        st.write(f"**Data:** {parecer_info['data']}")
-                        st.write(f"**Professor:** {parecer_info['professor']}")
+def admin_dashboard():
+    # --- Lógica do Painel de Admin ---
+    st.title("Painel do Administrador")
+    st.sidebar.title(f"Bem-vindo, {st.session_state['username']}")
+    st.sidebar.button("Logout", on_click=lambda: st.session_state.clear())
+    
+    st.header("Gerenciar Usuários")
+    users_db = load_data(USERS_FILE, {})
+    user_list = [user for user in users_db if user != st.session_state['username']]
+
+    if user_list:
+        st.write("### Usuários Existentes")
+        for user in user_list:
+            is_admin = users_db[user].get('is_admin', False)
+            col1, col2, col3 = st.columns([0.4, 0.2, 0.4])
+            with col1:
+                st.write(f"- {user}")
+            with col2:
+                if st.button("Tornar Admin", key=f"make_admin_{user}"):
+                    users_db[user]['is_admin'] = True
+                    save_data(users_db, USERS_FILE)
+                    st.success(f"Usuário {user} agora é administrador.")
+                    st.experimental_rerun()
+            with col3:
+                if st.button("Remover", key=f"remove_user_{user}"):
+                    del users_db[user]
+                    save_data(users_db, USERS_FILE)
+                    st.success(f"Usuário {user} removido com sucesso.")
+                    st.experimental_rerun()
+            st.markdown("---")
+    else:
+        st.info("Nenhum outro usuário cadastrado.")
+
+    st.header("Gerenciar Pareceres")
+    pareceres_db = load_data(PARECERES_FILE, {})
+    
+    if pareceres_db:
+        st.write("### Pareceres Salvos por Usuário")
+        for username_parecer, user_data in pareceres_db.items():
+            st.subheader(f"Pareceres de {username_parecer}")
+            for student_name_display, pareceres in user_data.items():
+                st.markdown(f"**Aluno(a):** {student_name_display}")
+                for i, parecer_info in enumerate(pareceres):
+                    with st.expander(f"Parecer {i+1} - {parecer_info.get('data_parecer', 'Data Indisponível')}"):
+                        st.markdown(f"**Professor(a):** {parecer_info['nome_professor']}")
+                        st.markdown(f"**Texto:** {parecer_info['texto_parecer']}")
                         
-                        if 'characteristics_levels' in parecer_info:
-                            st.write(f"**Níveis Avaliados:**")
-                            st.write(f"  - Comportamento: {parecer_info['characteristics_levels'].get('comportamento', 'N/A')}")
-                            st.write(f"  - Participação: {parecer_info['characteristics_levels'].get('participacao', 'N/A')}")
-                            st.write(f"  - Leitura/Escrita: {parecer_info['characteristics_levels'].get('leitura_escrita', 'N/A')}")
-                            st.write(f"  - Matemática: {parecer_info['characteristics_levels'].get('matematica', 'N/A')}")
+                        if 'characteristics_levels' in parecer_info and parecer_info['characteristics_levels']:
+                            st.write(f"**Leitura e Escrita:** {parecer_info['characteristics_levels'].get('leitura', 'N/A')}")
+                            st.write(f"**Matemática:** {parecer_info['characteristics_levels'].get('matematica', 'N/A')}")
+                            st.write(f"**Comportamento:** {parecer_info['characteristics_levels'].get('comportamento', 'N/A')}")
+                            st.write(f"**Participação:** {parecer_info['characteristics_levels'].get('participacao', 'N/A')}")
                         elif 'opcao' in parecer_info:
-                             st.write(f"**Opção Geral (Legado):** {parecer_info['opcao']}")
+                             st.write(f"**Opção Geral:** {parecer_info['opcao']}")
 
                         if 'docx_data' in parecer_info and parecer_info['docx_data']:
                             try:
                                 docx_data_bytes = bytes.fromhex(parecer_info['docx_data'])
-                                file_name = f"parecer_{sanitize_student_name_for_filename(student_name_display)}_{parecer_info['data'].replace(' ', '_').replace(':', '')}_{i}.docx"
+                                file_name = f"parecer_{sanitize_student_name_for_filename(student_name_display)}_{parecer_info['data_parecer'].replace(' ', '_').replace(':', '')}_{i}.docx"
                                 st.download_button(
                                     label=f"Baixar Parecer {i+1} (DOCX)",
                                     data=docx_data_bytes,
@@ -407,6 +390,29 @@ else:
                         else:
                             st.info(f"DOCX não disponível para o parecer {i+1}.")
                         st.markdown("---")
+    else:
+        st.info("Nenhum parecer salvo ainda.")
 
     st.markdown("---")
     st.info("Sistema desenvolvido com Streamlit e Python.")
+
+
+# --- Lógica principal ---
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+if 'show_create_account' not in st.session_state:
+    st.session_state['show_create_account'] = False
+
+users_db = load_data(USERS_FILE, {})
+current_user = st.session_state.get('username')
+
+if st.session_state['logged_in']:
+    if users_db.get(current_user, {}).get('is_admin', False):
+        admin_dashboard()
+    else:
+        app_content()
+else:
+    if st.session_state['show_create_account']:
+        create_account()
+    else:
+        login()
