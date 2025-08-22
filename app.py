@@ -240,7 +240,7 @@ def app_content():
     # Sidebar melhorada
     with st.sidebar:
         st.markdown(f"## 👋 Bem-vindo(a)")
-        st.markdown(f"**{st.session_state['username']}**")
+        st.markdown(f"**{st.session_state.get('username', 'Usuário')}**")
         st.markdown("---")
         
         if st.button("🚪 Logout", use_container_width=True):
@@ -249,10 +249,18 @@ def app_content():
         
         st.markdown("---")
         st.markdown("### 📊 Estatísticas")
-        pareceres_db = load_data(PARECERES_FILE, {})
-        user_pareceres = pareceres_db.get(st.session_state['username'], {})
-        total_alunos = len(user_pareceres)
-        total_pareceres = sum(len(pareceres) for pareceres in user_pareceres.values())
+        
+        # Tratamento de erro para carregar dados
+        try:
+            pareceres_db = load_data(PARECERES_FILE, {})
+            username = st.session_state.get('username', '')
+            user_pareceres = pareceres_db.get(username, {}) if username else {}
+            total_alunos = len(user_pareceres)
+            total_pareceres = sum(len(pareceres) for pareceres in user_pareceres.values()) if user_pareceres else 0
+        except Exception as e:
+            st.error(f"Erro ao carregar estatísticas: {str(e)}")
+            total_alunos = 0
+            total_pareceres = 0
         
         st.metric("Total de Alunos", total_alunos)
         st.metric("Total de Pareceres", total_pareceres)
@@ -476,24 +484,35 @@ def app_content():
                         )
 
             # Salvar no banco de dados
-            pareceres_db = load_data(PARECERES_FILE, {})
-            if st.session_state['username'] not in pareceres_db:
-                pareceres_db[st.session_state['username']] = {}
-            if student_name not in pareceres_db[st.session_state['username']]:
-                pareceres_db[st.session_state['username']][student_name] = []
-            
-            parecer_data_to_save = parecer_data.copy()
-            if docx_data_bytes:
-                parecer_data_to_save['docx_data'] = docx_data_bytes.hex()
-            
-            pareceres_db[st.session_state['username']][student_name].append(parecer_data_to_save)
-            save_data(pareceres_db, PARECERES_FILE)
+            try:
+                pareceres_db = load_data(PARECERES_FILE, {})
+                username = st.session_state.get('username', '')
+                
+                if username:
+                    if username not in pareceres_db:
+                        pareceres_db[username] = {}
+                    if student_name not in pareceres_db[username]:
+                        pareceres_db[username][student_name] = []
+                    
+                    parecer_data_to_save = parecer_data.copy()
+                    if docx_data_bytes:
+                        parecer_data_to_save['docx_data'] = docx_data_bytes.hex()
+                    
+                    pareceres_db[username][student_name].append(parecer_data_to_save)
+                    save_data(pareceres_db, PARECERES_FILE)
+                    st.success("💾 Parecer salvo com sucesso!")
+                else:
+                    st.error("❌ Erro: usuário não identificado")
+                    
+            except Exception as e:
+                st.error(f"❌ Erro ao salvar parecer: {str(e)}")
 
 def admin_dashboard():
     """Painel do Administrador com interface melhorada."""
     with st.sidebar:
         st.markdown(f"## 👑 Administrador")
-        st.markdown(f"**{st.session_state['username']}**")
+        username = st.session_state.get('username', 'Admin')
+        st.markdown(f"**{username}**")
         st.markdown("---")
         
         if st.button("🚪 Logout", use_container_width=True):
@@ -505,8 +524,15 @@ def admin_dashboard():
     
     # Gerenciar usuários
     st.markdown("## 👥 Gerenciar Usuários")
-    users_db = load_data(USERS_FILE, {})
-    user_list = [user for user in users_db if user != st.session_state['username']]
+    
+    try:
+        users_db = load_data(USERS_FILE, {})
+        current_username = st.session_state.get('username', '')
+        user_list = [user for user in users_db if user != current_username]
+    except Exception as e:
+        st.error(f"❌ Erro ao carregar usuários: {str(e)}")
+        users_db = {}
+        user_list = []
 
     if user_list:
         st.markdown("### 📋 Usuários Existentes")
@@ -543,7 +569,12 @@ def admin_dashboard():
 
     # Gerenciar pareceres
     st.markdown("## 📝 Gerenciar Pareceres")
-    pareceres_db = load_data(PARECERES_FILE, {})
+    
+    try:
+        pareceres_db = load_data(PARECERES_FILE, {})
+    except Exception as e:
+        st.error(f"❌ Erro ao carregar pareceres: {str(e)}")
+        pareceres_db = {}
     
     if pareceres_db:
         st.markdown("### 📊 Estatísticas Gerais")
@@ -661,17 +692,32 @@ def main():
     if 'show_create_account' not in st.session_state:
         st.session_state['show_create_account'] = False
 
-    # Lógica principal de navegação
-    users_db = load_data(USERS_FILE, {})
-    current_user = st.session_state.get('username')
+    # Tratamento de erro para carregar dados de usuário
+    try:
+        users_db = load_data(USERS_FILE, {})
+    except Exception as e:
+        st.error(f"Erro ao carregar dados de usuários: {str(e)}")
+        users_db = {}
+    
+    current_user = st.session_state.get('username', '')
 
-    if st.session_state['logged_in']:
-        if users_db.get(current_user, {}).get('is_admin', False):
+    # Lógica principal de navegação
+    if st.session_state.get('logged_in', False):
+        # Verificar se o usuário ainda existe
+        if current_user not in users_db and current_user:
+            st.error("❌ Usuário não encontrado. Faça login novamente.")
+            st.session_state.clear()
+            st.rerun()
+        
+        # Determinar se é admin
+        is_admin = users_db.get(current_user, {}).get('is_admin', False)
+        
+        if is_admin:
             admin_dashboard()
         else:
             app_content()
     else:
-        if st.session_state['show_create_account']:
+        if st.session_state.get('show_create_account', False):
             create_account()
         else:
             login()
