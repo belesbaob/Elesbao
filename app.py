@@ -8,15 +8,20 @@ import unicodedata
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import sys
 
-# Configuração da porta
-os.environ["STREAMLIT_SERVER_PORT"] = "8502"
+# Adicione ESTAS DUAS LINHAS para configurar a porta
+# Isso cria uma variável de ambiente que o Streamlit irá ler
+os.environ["STREAMLIT_SERVER_PORT"] = "8502" # Tentar a porta 8502 (ou outra, se preferir)
 
 # --- Configurações Iniciais ---
+# Verifica se o aplicativo está rodando como um executável PyInstaller
 if getattr(sys, 'frozen', False):
+    # Se sim, o caminho base é o diretório temporário onde o PyInstaller extrai os arquivos
     base_path = sys._MEIPASS
 else:
+    # Se não, está rodando em ambiente Python normal, o caminho base é o diretório atual do script
     base_path = os.path.abspath(".")
 
+# Ajusta DATA_DIR para usar o base_path
 DATA_DIR = os.path.join(base_path, "data")
 USERS_FILE = os.path.join(DATA_DIR, "users.json")
 PARECERES_FILE = os.path.join(DATA_DIR, "pareceres.json")
@@ -98,314 +103,144 @@ def create_parecer_docx(data):
 # --- Funções de Autenticação ---
 def login():
     st.session_state['logged_in'] = False
-    
-    # Interface melhorada para login
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown("## 📝 Sistema de Parecer Descritivo")
-        st.markdown(f"### {SCHOOL_NAME}")
-        st.markdown("---")
-        
-        with st.form("login_form"):
-            st.markdown("#### Acesso ao Sistema")
-            username = st.text_input("👤 Usuário", placeholder="Digite seu usuário")
-            password = st.text_input("🔒 Senha", type="password", placeholder="Digite sua senha")
-            
-            col_btn1, col_btn2 = st.columns(2)
-            with col_btn1:
-                login_btn = st.form_submit_button("🚀 Entrar", use_container_width=True)
-            with col_btn2:
-                create_btn = st.form_submit_button("➕ Criar Conta", use_container_width=True)
-            
-            if login_btn:
+    with st.form("login_form"):
+        username = st.text_input("Usuário")
+        password = st.text_input("Senha", type="password")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.form_submit_button("Entrar"):
                 users = load_data(USERS_FILE, {})
                 if username in users and users[username]['password'] == password:
                     st.session_state['logged_in'] = True
                     st.session_state['username'] = username
-                    st.success("✅ Login bem-sucedido!")
-                    st.rerun()
+                    st.success("Login bem-sucedido!")
+                    st.experimental_rerun()
                 else:
-                    st.error("❌ Usuário ou senha incorretos.")
-            
-            if create_btn:
+                    st.error("Usuário ou senha incorretos.")
+        with col2:
+            st.write("---")
+            if st.form_submit_button("Criar Conta"):
                 st.session_state['show_create_account'] = True
-                st.rerun()
 
 def create_account():
     st.session_state['logged_in'] = False
     st.session_state['show_create_account'] = True
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown("## 📝 Sistema de Parecer Descritivo")
-        st.markdown("### Criar Nova Conta")
-        st.markdown("---")
-        
-        with st.form("create_account_form"):
-            new_username = st.text_input("👤 Novo Usuário", key="new_user", placeholder="Escolha um nome de usuário")
-            new_password = st.text_input("🔒 Nova Senha", type="password", key="new_pass", placeholder="Crie uma senha segura")
-            confirm_password = st.text_input("🔒 Confirmar Senha", type="password", key="confirm_pass", placeholder="Confirme sua senha")
-            
-            col_btn1, col_btn2 = st.columns(2)
-            with col_btn1:
-                confirm_btn = st.form_submit_button("✅ Confirmar Cadastro", use_container_width=True)
-            with col_btn2:
-                back_btn = st.form_submit_button("⬅️ Voltar", use_container_width=True)
-            
-            if confirm_btn:
-                if not new_username or not new_password or not confirm_password:
-                    st.error("⚠️ Preencha todos os campos.")
-                elif new_password != confirm_password:
-                    st.error("⚠️ As senhas não coincidem.")
+    with st.form("create_account_form"):
+        st.write("### Criar Nova Conta")
+        new_username = st.text_input("Novo Usuário", key="new_user")
+        new_password = st.text_input("Nova Senha", type="password", key="new_pass")
+        confirm_password = st.text_input("Confirmar Senha", type="password", key="confirm_pass")
+        if st.form_submit_button("Confirmar Cadastro"):
+            if not new_username or not new_password or not confirm_password:
+                st.error("Preencha todos os campos.")
+            elif new_password != confirm_password:
+                st.error("As senhas não coincidem.")
+            else:
+                users = load_data(USERS_FILE, {})
+                if new_username in users:
+                    st.error("Usuário já existe. Escolha outro nome.")
                 else:
-                    users = load_data(USERS_FILE, {})
-                    if new_username in users:
-                        st.error("⚠️ Usuário já existe. Escolha outro nome.")
-                    else:
-                        users[new_username] = {'password': new_password, 'is_admin': False}
-                        save_data(users, USERS_FILE)
-                        st.success("✅ Conta criada com sucesso! Faça login para continuar.")
-                        st.session_state['show_create_account'] = False
-                        st.rerun()
-            
-            if back_btn:
-                st.session_state['show_create_account'] = False
-                st.rerun()
-
-def generate_parecer_text(student_name, status_aluno, foco_parecer, **kwargs):
-    """Gera o texto do parecer baseado nos parâmetros fornecidos."""
-    
-    if status_aluno == "Deixou de Frequentar":
-        return (
-            f"Constatou-se que o(a) aluno(a) {student_name} deixou de frequentar a escola durante "
-            "o período letivo. Devido ao curto período de tempo de sua presença em sala de aula, "
-            "não foi possível estabelecer uma relação de aprendizado sólida, bem como avaliar "
-            "adequadamente seu desenvolvimento nas diferentes áreas do conhecimento. A ausência "
-            "prolongada impossibilitou a construção de vínculos pedagógicos consistentes e o "
-            "acompanhamento do processo de ensino-aprendizagem."
-        )
-    
-    elif status_aluno == "Transferido":
-        return (
-            f"O(a) aluno(a) {student_name} foi transferido(a) durante o período letivo. "
-            "Durante sua permanência na instituição, demonstrou estar em processo de adaptação "
-            "ao ambiente escolar. O tempo de convivência foi insuficiente para uma avaliação "
-            "completa de seu desenvolvimento acadêmico e social, mas observou-se potencial "
-            "para o aprendizado nas atividades propostas."
-        )
-    
-    elif status_aluno == "Necessidades Especiais":
-        return (
-            f"O(a) aluno(a) {student_name} apresenta necessidades educacionais especiais e "
-            "recebe acompanhamento pedagógico diferenciado. Demonstra progresso gradual em "
-            "seu desenvolvimento, respeitando-se suas particularidades e ritmo de aprendizagem. "
-            "As atividades são adaptadas às suas necessidades, promovendo sua inclusão e "
-            "participação efetiva no processo educativo."
-        )
-    
-    elif status_aluno == "Frequente":
-        if foco_parecer == "Geral":
-            leitura = kwargs.get('leitura', 'N/A')
-            matematica = kwargs.get('matematica', 'N/A')
-            comportamento = kwargs.get('comportamento', 'N/A')
-            participacao = kwargs.get('participacao', 'N/A')
-            
-            return (
-                f"O(a) aluno(a) {student_name} demonstra uma postura colaborativa em sala de aula, "
-                f"apresentando um desempenho geral satisfatório. No que diz respeito à leitura e "
-                f"escrita, seu desenvolvimento é {leitura.lower()}. Na área de Matemática, "
-                f"demonstra desempenho {matematica.lower()}. Quanto ao comportamento, apresenta "
-                f"conduta {comportamento.lower()} e sua participação nas atividades propostas "
-                f"é {participacao.lower()}, contribuindo positivamente para o ambiente de aprendizagem."
-            )
-        
-        elif foco_parecer == "Comportamental":
-            comportamento = kwargs.get('comportamento', 'N/A')
-            participacao = kwargs.get('participacao', 'N/A')
-            
-            return (
-                f"O(a) aluno(a) {student_name} demonstra uma postura {comportamento.lower()} "
-                f"em sala de aula, mantendo relacionamento respeitoso com colegas e professores. "
-                f"Sua participação nas atividades é {participacao.lower()}, mostrando interesse "
-                "pelas propostas pedagógicas e contribuindo de forma positiva para o ambiente escolar."
-            )
-        
-        elif foco_parecer == "Específico":
-            return kwargs.get('parecer_personalizado', '')
-    
-    return ""
+                    users[new_username] = {'password': new_password, 'is_admin': False}
+                    save_data(users, USERS_FILE)
+                    st.success("Conta criada com sucesso! Faça login para continuar.")
+                    st.session_state['show_create_account'] = False
+                    st.experimental_rerun()
+        if st.form_submit_button("Voltar para Login"):
+            st.session_state['show_create_account'] = False
+            st.experimental_rerun()
 
 # --- Conteúdo do Aplicativo ---
 def app_content():
-    # Sidebar melhorada
-    with st.sidebar:
-        st.markdown(f"## 👋 Bem-vindo(a)")
-        st.markdown(f"**{st.session_state.get('username', 'Usuário')}**")
-        st.markdown("---")
-        
-        if st.button("🚪 Logout", use_container_width=True):
-            st.session_state.clear()
-            st.rerun()
-        
-        st.markdown("---")
-        st.markdown("### 📊 Estatísticas")
-        
-        # Tratamento de erro para carregar dados
-        try:
-            pareceres_db = load_data(PARECERES_FILE, {})
-            username = st.session_state.get('username', '')
-            user_pareceres = pareceres_db.get(username, {}) if username else {}
-            total_alunos = len(user_pareceres)
-            total_pareceres = sum(len(pareceres) for pareceres in user_pareceres.values()) if user_pareceres else 0
-        except Exception as e:
-            st.error(f"Erro ao carregar estatísticas: {str(e)}")
-            total_alunos = 0
-            total_pareceres = 0
-        
-        st.metric("Total de Alunos", total_alunos)
-        st.metric("Total de Pareceres", total_pareceres)
-
-    # Título principal
-    st.markdown("# 📝 Gerador de Parecer Descritivo Individual")
-    st.markdown(f"### {SCHOOL_NAME}")
-    st.markdown("---")
+    st.sidebar.title(f"Bem-vindo(a), {st.session_state['username']}")
+    st.sidebar.button("Logout", on_click=lambda: st.session_state.clear())
+    st.title("Gerador de Parecer Descritivo Individual")
     
-    # Seletor de tipo de parecer
-    st.markdown("## 📄 Tipo de Documento")
-    parecer_type = st.radio(
-        "Selecione o tipo de parecer a ser gerado:",
-        ["📋 Parecer Completo", "📝 Apenas o Texto"],
-        horizontal=True
-    )
+    # Adicionando o seletor de tipo de parecer
+    parecer_type = st.radio("Selecione o tipo de parecer a ser gerado:",
+                            ["Parecer Completo", "Apenas o Texto"])
 
-    # Dados do aluno
-    st.markdown("## 👤 Dados do Aluno")
-    with st.container():
-        col1, col2 = st.columns(2)
-        with col1:
-            student_name = st.text_input("📝 Nome Completo do Aluno(a)", placeholder="Digite o nome completo")
-            filiacao_mae = st.text_input("👩 Filiação (Mãe)", placeholder="Nome da mãe")
-            data_nascimento = st.text_input("📅 Data de Nascimento", placeholder="dd/mm/aaaa")
-            endereco = st.text_input("🏠 Endereço", placeholder="Endereço completo")
-            numero_aluno = st.text_input("📋 Nº na Lista de Chamada", placeholder="Número do aluno")
-        
-        with col2:
-            filiacao_pai = st.text_input("👨 Filiação (Pai)", placeholder="Nome do pai")
-            naturalidade = st.text_input("🌍 Naturalidade", placeholder="Cidade de nascimento")
-            uf = st.text_input("📍 UF", placeholder="Estado", max_chars=2)
-            # Espaços em branco para alinhamento
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
-
-    # Dados da turma
-    st.markdown("## 🏫 Dados da Turma")
-    with st.container():
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            periodo = st.selectbox("📚 Período/Ano", 
-                                 ["1º", "2º", "3º", "4º", "5º", "6º", "7º", "8º", "9º", "EJA"])
-        with col2:
-            turma = st.text_input("🏷️ Turma", placeholder="Ex: A, B, Única")
-        with col3:
-            turno = st.selectbox("⏰ Turno", ["Manhã", "Tarde", "Noturno"])
-
-    # Dados do parecer
-    st.markdown("## 👨‍🏫 Dados do Parecer")
-    nome_professor = st.text_input("🧑‍🏫 Nome Completo do(a) Professor(a)", 
-                                  placeholder="Digite o nome completo do professor")
+    # Carregar dados
+    pareceres_db = load_data(PARECERES_FILE, {})
     
-    # Status do aluno (MELHORADO)
-    st.markdown("## 📊 Status do Aluno")
+    # Coletar dados do aluno
+    st.header("1. Dados do Aluno")
+    student_name = st.text_input("Nome Completo do Aluno(a)")
+    filiacao_mae = st.text_input("Filiação (Mãe)")
+    filiacao_pai = st.text_input("Filiação (Pai)")
+    data_nascimento = st.text_input("Data de Nascimento (dd/mm/aaaa)")
+    naturalidade = st.text_input("Naturalidade")
+    endereco = st.text_input("Endereço")
+    uf = st.text_input("UF")
+    numero_aluno = st.text_input("Número do Aluno(a) na Lista de Chamada")
+    
+    st.header("2. Dados da Turma")
+    periodo = st.selectbox("Período/Ano", ["1º", "2º", "3º", "4º", "5º", "6º", "7º", "8º", "9º", "EJA"])
+    turma = st.text_input("Turma")
+    turno = st.selectbox("Turno", ["Manhã", "Tarde", "Noturno"])
+    
+    st.header("3. Dados do Parecer")
+    nome_professor = st.text_input("Nome Completo do(a) Professor(a)")
+    
+    # Opção para alunos que deixaram de frequentar - NOVO CAMPO DE SELEÇÃO
     status_aluno = st.selectbox(
-        "📋 Situação do Aluno(a)",
-        [
-            "Frequente", 
-            "Deixou de Frequentar", 
-            "Transferido",
-            "Necessidades Especiais"
-        ]
+        "Status do Aluno(a)",
+        ["Frequente", "Deixou de Frequentar"] # NOVO CAMPO
     )
 
-    # Interface condicional baseada no status
     if status_aluno == "Frequente":
-        st.markdown("### 🎯 Foco do Parecer")
-        foco_parecer = st.radio(
-            "Selecione o foco principal:", 
-            ["📊 Geral", "🤝 Comportamental", "✏️ Específico"],
-            horizontal=True
-        )
+        st.subheader("Habilidades Desenvolvidas")
+        foco_parecer = st.radio("Foco do Parecer", ["Geral", "Comportamental", "Específico"])
     
-        if foco_parecer == "📊 Geral":
-            st.markdown("#### 📈 Áreas de Desempenho")
-            with st.container():
-                col1, col2 = st.columns(2)
-                with col1:
-                    leitura = st.selectbox("📖 Leitura e Escrita", 
-                                         ["Excelente", "Muito Bom", "Bom", "Satisfatório", "Precisa Melhorar"])
-                    comportamento = st.selectbox("😊 Comportamento", 
-                                                ["Excelente", "Muito Bom", "Bom", "Satisfatório", "Precisa Melhorar"])
-                with col2:
-                    matematica = st.selectbox("🔢 Matemática", 
-                                            ["Excelente", "Muito Bom", "Bom", "Satisfatório", "Precisa Melhorar"])
-                    participacao = st.selectbox("🙋 Participação", 
-                                               ["Excelente", "Muito Bom", "Bom", "Satisfatório", "Precisa Melhorar"])
+        if foco_parecer == "Geral":
+            with st.container(border=True):
+                st.write("#### Áreas de Desempenho")
+                leitura = st.selectbox("Leitura e Escrita", ["N/A", "Muito Bom", "Bom", "Precisa Melhorar"])
+                matematica = st.selectbox("Matemática", ["N/A", "Muito Bom", "Bom", "Precisa Melhorar"])
+                comportamento = st.selectbox("Comportamento", ["N/A", "Muito Bom", "Bom", "Precisa Melhorar"])
+                participacao = st.selectbox("Participação", ["N/A", "Muito Bom", "Bom", "Precisa Melhorar"])
         
-        elif foco_parecer == "🤝 Comportamental":
-            st.markdown("#### 🎭 Aspectos Comportamentais")
-            with st.container():
-                col1, col2 = st.columns(2)
-                with col1:
-                    comportamento = st.selectbox("😊 Comportamento", 
-                                                ["Excelente", "Muito Bom", "Bom", "Satisfatório", "Precisa Melhorar"])
-                with col2:
-                    participacao = st.selectbox("🙋 Participação", 
-                                               ["Excelente", "Muito Bom", "Bom", "Satisfatório", "Precisa Melhorar"])
+        elif foco_parecer == "Comportamental":
+            with st.container(border=True):
+                st.write("#### Foco Comportamental")
+                comportamento = st.selectbox("Comportamento", ["N/A", "Muito Bom", "Bom", "Precisa Melhorar"])
+                participacao = st.selectbox("Participação", ["N/A", "Muito Bom", "Bom", "Precisa Melhorar"])
                 leitura = matematica = "N/A"
         
-        elif foco_parecer == "✏️ Específico":
-            st.markdown("#### 📝 Parecer Personalizado")
-            parecer_personalizado = st.text_area(
-                "Digite o texto do parecer:",
-                placeholder="Descreva de forma detalhada o desempenho e desenvolvimento do aluno...",
-                height=150
-            )
-            leitura = matematica = comportamento = participacao = "N/A"
+        elif foco_parecer == "Específico":
+            with st.container(border=True):
+                st.write("#### Foco Específico (Personalizado)")
+                parecer_personalizado = st.text_area("Digite o texto do parecer:")
+                leitura = matematica = comportamento = participacao = "N/A"
     else:
-        # Para alunos não frequentes, definir variáveis padrão
+        # Garante que as variáveis de foco sejam definidas mesmo que o aluno não seja "Frequente"
         foco_parecer = None
         leitura = matematica = comportamento = participacao = "N/A"
-        parecer_personalizado = ""
 
-    # Botão de geração (MELHORADO)
-    st.markdown("---")
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col2:
-        gerar_parecer = st.button("🚀 Gerar Parecer", use_container_width=True, type="primary")
 
-    # Lógica de geração do parecer
-    if gerar_parecer:
+    # Botão de Geração do Parecer
+    if st.button("Gerar Parecer"):
+        # --- Lógica de Geração do Parecer ---
         if not student_name or not nome_professor:
-            st.error("⚠️ Por favor, preencha o nome do aluno e do professor.")
+            st.error("Por favor, preencha o nome do aluno e do professor.")
         else:
-            # Gerar texto do parecer
-            parecer_kwargs = {
-                'leitura': leitura,
-                'matematica': matematica,
-                'comportamento': comportamento,
-                'participacao': participacao
-            }
+            parecer_text = ""
             
-            if foco_parecer == "✏️ Específico":
-                parecer_kwargs['parecer_personalizado'] = parecer_personalizado
+            # NOVO TRECHO DE CÓDIGO - TRATA ALUNOS QUE DEIXARAM DE FREQUENTAR
+            if status_aluno == "Deixou de Frequentar":
+                parecer_text = (
+                    f"Constatou-se que o(a) aluno(a) {student_name} deixou de frequentar a escola. "
+                    "Devido ao curto período de tempo de sua presença em sala de aula, não foi possível "
+                    "estabelecer uma relação de aprendizado sólida."
+                )
             
-            parecer_text = generate_parecer_text(
-                student_name, 
-                status_aluno, 
-                foco_parecer.replace("📊 ", "").replace("🤝 ", "").replace("✏️ ", "") if foco_parecer else None,
-                **parecer_kwargs
-            )
+            elif status_aluno == "Frequente":
+                if foco_parecer == "Geral":
+                    parecer_text = f"O(a) aluno(a) {student_name} demonstra uma postura colaborativa em sala de aula, apresentando um bom desempenho geral. No que diz respeito à leitura e escrita, demonstra {leitura}. Na área de Matemática, seu desempenho é {matematica}. Seu comportamento é {comportamento} e sua participação em atividades em grupo é {participacao}."
+                elif foco_parecer == "Comportamental":
+                    parecer_text = f"O(a) aluno(a) {student_name} demonstra uma postura {comportamento} em sala de aula. Sua participação nas atividades é {participacao}, contribuindo positivamente para o ambiente escolar."
+                elif foco_parecer == "Específico":
+                    parecer_text = parecer_personalizado
             
-            # Data formatada
             data_parecer = datetime.now().strftime("%d de %B de %Y").replace(
                 "January", "janeiro"
             ).replace("February", "fevereiro").replace("March", "março").replace(
@@ -429,299 +264,155 @@ def app_content():
                 'turma': turma,
                 'turno': turno,
                 'ano_letivo': datetime.now().year,
-                'semestre': '2025.1',
+                'semestre': '2025.1', # Ajuste conforme o ano
                 'nome_professor': nome_professor,
                 'texto_parecer': parecer_text,
-                'data_parecer': data_parecer,
-                'status_aluno': status_aluno
+                'data_parecer': data_parecer
             }
 
-            if foco_parecer:
-                parecer_data['foco_parecer'] = foco_parecer
-                if foco_parecer not in ["✏️ Específico"] and status_aluno == "Frequente":
-                    parecer_data['characteristics_levels'] = {
-                        "leitura": leitura,
-                        "matematica": matematica,
-                        "comportamento": comportamento,
-                        "participacao": participacao
-                    }
+            if 'parecer_personalizado' in locals() and parecer_personalizado:
+                parecer_data['opcao'] = 'Específico'
+            elif status_aluno == 'Deixou de Frequentar':
+                parecer_data['opcao'] = 'Deixou de Frequentar'
+            else:
+                parecer_data['characteristics_levels'] = {
+                    "leitura": leitura,
+                    "matematica": matematica,
+                    "comportamento": comportamento,
+                    "participacao": participacao
+                }
 
-            # Gerar arquivo DOCX se necessário
+            # Gerar o arquivo .docx
             docx_data_bytes = None
-            if "📋 Parecer Completo" in parecer_type:
+            if parecer_type == "Parecer Completo":
                 doc_bytes_io = create_parecer_docx(parecer_data)
                 if doc_bytes_io:
                     docx_data_bytes = doc_bytes_io.getvalue()
                     parecer_data['docx_data'] = docx_data_bytes.hex()
-            
-            # Exibir resultado
-            st.success("✅ Parecer gerado com sucesso!")
-            
-            # Preview do parecer
-            with st.container():
-                st.markdown("### 📋 Pré-visualização do Parecer")
-                st.markdown("---")
-                st.markdown(f"**Aluno(a):** {student_name}")
-                st.markdown(f"**Professor(a):** {nome_professor}")
-                st.markdown(f"**Status:** {status_aluno}")
-                st.markdown("**Parecer:**")
-                st.info(parecer_data['texto_parecer'])
-                
-                # Botão de download
-                if docx_data_bytes:
-                    sanitized_name = sanitize_student_name_for_filename(student_name)
-                    file_name = f"parecer_descritivo_{sanitized_name}.docx"
                     
-                    col1, col2, col3 = st.columns([1, 1, 1])
-                    with col2:
-                        st.download_button(
-                            label="📥 Baixar Parecer (DOCX)",
-                            data=docx_data_bytes,
-                            file_name=file_name,
-                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            use_container_width=True,
-                            type="secondary"
-                        )
+            st.success("Parecer gerado com sucesso!")
+            st.write("---")
+            st.subheader("Pré-visualização do Parecer")
+            st.write(parecer_data['texto_parecer'])
+            
+            if docx_data_bytes:
+                sanitized_name = sanitize_student_name_for_filename(student_name)
+                file_name = f"parecer_descritivo_{sanitized_name}.docx"
+                st.download_button(
+                    label="Baixar Parecer (DOCX)",
+                    data=docx_data_bytes,
+                    file_name=file_name,
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
 
             # Salvar no banco de dados
-            try:
-                pareceres_db = load_data(PARECERES_FILE, {})
-                username = st.session_state.get('username', '')
-                
-                if username:
-                    if username not in pareceres_db:
-                        pareceres_db[username] = {}
-                    if student_name not in pareceres_db[username]:
-                        pareceres_db[username][student_name] = []
-                    
-                    parecer_data_to_save = parecer_data.copy()
-                    if docx_data_bytes:
-                        parecer_data_to_save['docx_data'] = docx_data_bytes.hex()
-                    
-                    pareceres_db[username][student_name].append(parecer_data_to_save)
-                    save_data(pareceres_db, PARECERES_FILE)
-                    st.success("💾 Parecer salvo com sucesso!")
-                else:
-                    st.error("❌ Erro: usuário não identificado")
-                    
-            except Exception as e:
-                st.error(f"❌ Erro ao salvar parecer: {str(e)}")
+            if st.session_state['username'] not in pareceres_db:
+                pareceres_db[st.session_state['username']] = {}
+            if student_name not in pareceres_db[st.session_state['username']]:
+                pareceres_db[st.session_state['username']][student_name] = []
+            
+            parecer_data_to_save = parecer_data.copy()
+            if docx_data_bytes:
+                parecer_data_to_save['docx_data'] = docx_data_bytes.hex()
+            
+            pareceres_db[st.session_state['username']][student_name].append(parecer_data_to_save)
+            save_data(pareceres_db, PARECERES_FILE)
+
 
 def admin_dashboard():
-    """Painel do Administrador com interface melhorada."""
-    with st.sidebar:
-        st.markdown(f"## 👑 Administrador")
-        username = st.session_state.get('username', 'Admin')
-        st.markdown(f"**{username}**")
-        st.markdown("---")
-        
-        if st.button("🚪 Logout", use_container_width=True):
-            st.session_state.clear()
-            st.rerun()
-
-    st.markdown("# 👑 Painel do Administrador")
-    st.markdown("---")
+    # --- Lógica do Painel de Admin ---
+    st.title("Painel do Administrador")
+    st.sidebar.title(f"Bem-vindo, {st.session_state['username']}")
+    st.sidebar.button("Logout", on_click=lambda: st.session_state.clear())
     
-    # Gerenciar usuários
-    st.markdown("## 👥 Gerenciar Usuários")
-    
-    try:
-        users_db = load_data(USERS_FILE, {})
-        current_username = st.session_state.get('username', '')
-        user_list = [user for user in users_db if user != current_username]
-    except Exception as e:
-        st.error(f"❌ Erro ao carregar usuários: {str(e)}")
-        users_db = {}
-        user_list = []
+    st.header("Gerenciar Usuários")
+    users_db = load_data(USERS_FILE, {})
+    user_list = [user for user in users_db if user != st.session_state['username']]
 
     if user_list:
-        st.markdown("### 📋 Usuários Existentes")
+        st.write("### Usuários Existentes")
         for user in user_list:
             is_admin = users_db[user].get('is_admin', False)
-            with st.container():
-                col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-                with col1:
-                    admin_badge = "👑" if is_admin else "👤"
-                    st.markdown(f"{admin_badge} **{user}**")
-                with col2:
-                    if not is_admin:
-                        if st.button("👑 Tornar Admin", key=f"make_admin_{user}", use_container_width=True):
-                            users_db[user]['is_admin'] = True
-                            save_data(users_db, USERS_FILE)
-                            st.success(f"✅ {user} agora é administrador.")
-                            st.rerun()
-                with col3:
-                    if is_admin:
-                        if st.button("👤 Remover Admin", key=f"remove_admin_{user}", use_container_width=True):
-                            users_db[user]['is_admin'] = False
-                            save_data(users_db, USERS_FILE)
-                            st.success(f"✅ {user} não é mais administrador.")
-                            st.rerun()
-                with col4:
-                    if st.button("🗑️ Remover", key=f"remove_user_{user}", use_container_width=True):
-                        del users_db[user]
-                        save_data(users_db, USERS_FILE)
-                        st.success(f"✅ Usuário {user} removido.")
-                        st.rerun()
-                st.markdown("---")
+            col1, col2, col3 = st.columns([0.4, 0.2, 0.4])
+            with col1:
+                st.write(f"- {user}")
+            with col2:
+                if st.button("Tornar Admin", key=f"make_admin_{user}"):
+                    users_db[user]['is_admin'] = True
+                    save_data(users_db, USERS_FILE)
+                    st.success(f"Usuário {user} agora é administrador.")
+                    st.experimental_rerun()
+            with col3:
+                if st.button("Remover", key=f"remove_user_{user}"):
+                    del users_db[user]
+                    save_data(users_db, USERS_FILE)
+                    st.success(f"Usuário {user} removido com sucesso.")
+                    st.experimental_rerun()
+            st.markdown("---")
     else:
-        st.info("ℹ️ Nenhum outro usuário cadastrado.")
+        st.info("Nenhum outro usuário cadastrado.")
 
-    # Gerenciar pareceres
-    st.markdown("## 📝 Gerenciar Pareceres")
-    
-    try:
-        pareceres_db = load_data(PARECERES_FILE, {})
-    except Exception as e:
-        st.error(f"❌ Erro ao carregar pareceres: {str(e)}")
-        pareceres_db = {}
+    st.header("Gerenciar Pareceres")
+    pareceres_db = load_data(PARECERES_FILE, {})
     
     if pareceres_db:
-        st.markdown("### 📊 Estatísticas Gerais")
-        total_users = len(pareceres_db)
-        total_students = sum(len(user_data) for user_data in pareceres_db.values())
-        total_pareceres = sum(len(pareceres) for user_data in pareceres_db.values() 
-                            for pareceres in user_data.values())
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("👥 Usuários", total_users)
-        with col2:
-            st.metric("👤 Alunos", total_students)
-        with col3:
-            st.metric("📝 Pareceres", total_pareceres)
-        
-        st.markdown("---")
-        st.markdown("### 📋 Pareceres por Usuário")
-        
+        st.write("### Pareceres Salvos por Usuário")
         for username_parecer, user_data in pareceres_db.items():
-            with st.expander(f"👤 Pareceres de {username_parecer} ({len(user_data)} alunos)"):
-                for student_name_display, pareceres in user_data.items():
-                    st.markdown(f"**👤 Aluno(a):** {student_name_display}")
-                    
-                    for i, parecer_info in enumerate(pareceres):
-                        with st.container():
-                            col1, col2 = st.columns([3, 1])
-                            with col1:
-                                st.markdown(f"**📝 Parecer {i+1}** - {parecer_info.get('data_parecer', 'Data Indisponível')}")
-                                st.markdown(f"**👨‍🏫 Professor(a):** {parecer_info['nome_professor']}")
-                                st.markdown(f"**📊 Status:** {parecer_info.get('status_aluno', 'N/A')}")
-                                
-                                # Preview do texto (limitado)
-                                texto_preview = parecer_info['texto_parecer'][:200] + "..." if len(parecer_info['texto_parecer']) > 200 else parecer_info['texto_parecer']
-                                st.markdown(f"**📄 Texto:** {texto_preview}")
-                                
-                                if 'characteristics_levels' in parecer_info and parecer_info['characteristics_levels']:
-                                    levels = parecer_info['characteristics_levels']
-                                    st.markdown(f"📖 **Leitura:** {levels.get('leitura', 'N/A')} | "
-                                              f"🔢 **Matemática:** {levels.get('matematica', 'N/A')} | "
-                                              f"😊 **Comportamento:** {levels.get('comportamento', 'N/A')} | "
-                                              f"🙋 **Participação:** {levels.get('participacao', 'N/A')}")
-                            
-                            with col2:
-                                if 'docx_data' in parecer_info and parecer_info['docx_data']:
-                                    try:
-                                        docx_data_bytes = bytes.fromhex(parecer_info['docx_data'])
-                                        sanitized_name = sanitize_student_name_for_filename(student_name_display)
-                                        file_name = f"parecer_{sanitized_name}_{i+1}.docx"
-                                        st.download_button(
-                                            label="📥 Download",
-                                            data=docx_data_bytes,
-                                            file_name=file_name,
-                                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                            key=f"admin_download_docx_{student_name_display}_{i}",
-                                            use_container_width=True
-                                        )
-                                    except ValueError:
-                                        st.error("❌ Erro nos dados do DOCX")
-                                else:
-                                    st.info("📄 Apenas texto")
+            st.subheader(f"Pareceres de {username_parecer}")
+            for student_name_display, pareceres in user_data.items():
+                st.markdown(f"**Aluno(a):** {student_name_display}")
+                for i, parecer_info in enumerate(pareceres):
+                    with st.expander(f"Parecer {i+1} - {parecer_info.get('data_parecer', 'Data Indisponível')}"):
+                        st.markdown(f"**Professor(a):** {parecer_info['nome_professor']}")
+                        st.markdown(f"**Texto:** {parecer_info['texto_parecer']}")
                         
+                        if 'characteristics_levels' in parecer_info and parecer_info['characteristics_levels']:
+                            st.write(f"**Leitura e Escrita:** {parecer_info['characteristics_levels'].get('leitura', 'N/A')}")
+                            st.write(f"**Matemática:** {parecer_info['characteristics_levels'].get('matematica', 'N/A')}")
+                            st.write(f"**Comportamento:** {parecer_info['characteristics_levels'].get('comportamento', 'N/A')}")
+                            st.write(f"**Participação:** {parecer_info['characteristics_levels'].get('participacao', 'N/A')}")
+                        elif 'opcao' in parecer_info:
+                             st.write(f"**Opção Geral:** {parecer_info['opcao']}")
+
+                        if 'docx_data' in parecer_info and parecer_info['docx_data']:
+                            try:
+                                docx_data_bytes = bytes.fromhex(parecer_info['docx_data'])
+                                file_name = f"parecer_{sanitize_student_name_for_filename(student_name_display)}_{parecer_info['data_parecer'].replace(' ', '_').replace(':', '')}_{i}.docx"
+                                st.download_button(
+                                    label=f"Baixar Parecer {i+1} (DOCX)",
+                                    data=docx_data_bytes,
+                                    file_name=file_name,
+                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    key=f"admin_download_docx_{student_name_display}_{i}"
+                                )
+                            except ValueError:
+                                st.error(f"Erro ao carregar DOCX para o parecer {i+1}. Dados corrompidos.")
+                        else:
+                            st.info(f"DOCX não disponível para o parecer {i+1}.")
                         st.markdown("---")
     else:
-        st.info("ℹ️ Nenhum parecer salvo ainda.")
+        st.info("Nenhum parecer salvo ainda.")
 
     st.markdown("---")
-    st.markdown("### ℹ️ Informações do Sistema")
-    st.info("Sistema desenvolvido com Streamlit e Python para geração de pareceres descritivos educacionais.")
+    st.info("Sistema desenvolvido com Streamlit e Python.")
 
-# --- Função Principal ---
-def main():
-    """Função principal do aplicativo."""
-    # Configuração da página
-    st.set_page_config(
-        page_title="Sistema de Parecer Descritivo",
-        page_icon="📝",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
-    
-    # CSS customizado para melhorar a aparência
-    st.markdown("""
-        <style>
-        .main > div {
-            padding-top: 2rem;
-        }
-        .stButton > button {
-            border-radius: 10px;
-            border: none;
-            padding: 0.5rem 1rem;
-            font-weight: 500;
-        }
-        .stSelectbox > div > div {
-            border-radius: 10px;
-        }
-        .stTextInput > div > div {
-            border-radius: 10px;
-        }
-        .stTextArea > div > div {
-            border-radius: 10px;
-        }
-        .metric-container {
-            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-            padding: 1rem;
-            border-radius: 10px;
-            color: white;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-    
-    # Inicialização das variáveis de sessão
-    if 'logged_in' not in st.session_state:
-        st.session_state['logged_in'] = False
-    if 'show_create_account' not in st.session_state:
-        st.session_state['show_create_account'] = False
 
-    # Tratamento de erro para carregar dados de usuário
-    try:
-        users_db = load_data(USERS_FILE, {})
-    except Exception as e:
-        st.error(f"Erro ao carregar dados de usuários: {str(e)}")
-        users_db = {}
-    
-    current_user = st.session_state.get('username', '')
+# --- Lógica principal ---
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+if 'show_create_account' not in st.session_state:
+    st.session_state['show_create_account'] = False
 
-    # Lógica principal de navegação
-    if st.session_state.get('logged_in', False):
-        # Verificar se o usuário ainda existe
-        if current_user not in users_db and current_user:
-            st.error("❌ Usuário não encontrado. Faça login novamente.")
-            st.session_state.clear()
-            st.rerun()
-        
-        # Determinar se é admin
-        is_admin = users_db.get(current_user, {}).get('is_admin', False)
-        
-        if is_admin:
-            admin_dashboard()
-        else:
-            app_content()
+users_db = load_data(USERS_FILE, {})
+current_user = st.session_state.get('username')
+
+if st.session_state['logged_in']:
+    if users_db.get(current_user, {}).get('is_admin', False):
+        admin_dashboard()
     else:
-        if st.session_state.get('show_create_account', False):
-            create_account()
-        else:
-            login()
-
-# --- Execução do Aplicativo ---
-if __name__ == "__main__":
-    main()
+        app_content()
+else:
+    if st.session_state['show_create_account']:
+        create_account()
+    else:
+        login()
